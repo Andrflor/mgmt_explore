@@ -34,76 +34,33 @@ class BaseWidget extends RearchConsumer {
             onPressed: () => otherSetter(initial + 1),
             child: const Text('clock'),
           ),
-          Consumer(
-            key: ValueKey('1'),
-            data: initial,
+          const SomeWidget(
+            data: 1,
           ),
           if (data != 'youpi')
-            Consomer(
-              key: ValueKey('2'),
+            const SomeWidget(
+              data: 2,
             ),
-          // Consomer(
-          //   key: ValueKey('3'),
-          // ),
+          const SomeWidget(
+            data: 3,
+          ),
         ],
       ),
     )));
   }
 }
 
-class Consumer extends RearchConsumer {
-  final int? data;
-  const Consumer({super.key, this.data});
+class SomeWidget extends RearchConsumer {
+  final int data;
+  const SomeWidget({super.key, required this.data});
 
   @override
   Widget build(BuildContext context, WidgetHandle use) {
-    final count = use(getSome);
-    final (internalCount, setCount) = use(use.inject(scopedCount, data ?? 0));
-    final (some, setter) = use.retreive(scopedCount);
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        Text(internalCount.toString()),
-        Text(some.toString()),
-        switch (count) {
-          AsyncData<int>(:final data) => Text(data.toString()),
-          AsyncLoading<int>() => const CircularProgressIndicator(),
-          AsyncError<int>() => const Icon(Icons.error),
-        },
-        ElevatedButton(onPressed: setCount, child: const Text('inc')),
-      ],
-    );
-  }
-}
+    scopeCapsule.override((use) {
+      final (count, setCount) = use.state(data);
+      return (count, () => setCount(count + 1));
+    }, [data]);
 
-class SomeClass {}
-
-final someClass = SomeClass();
-
-final Expando<Map<Function, Function>> _expando =
-    Expando<Map<Function, Function>>();
-
-extension Scoped on WidgetHandle {
-  Capsule<T> inject<T, E>(
-      T Function(CapsuleHandle use, E) capsuleFactory, E arg) {
-    final capsule = memo(() => (use) => capsuleFactory(use, arg), [arg]);
-    effect(() {
-      (_expando[this] ??= {})[capsuleFactory] = capsule;
-      return () => _expando[this]?.remove(capsuleFactory);
-    }, [capsule]);
-    return capsule;
-  }
-
-  T retreive<T, E>(T Function(CapsuleHandle use, E) capsuleFactory) =>
-      this(_expando[this]![capsuleFactory]! as Capsule<T>);
-}
-
-class Consomer extends RearchConsumer {
-  const Consomer({super.key});
-
-  @override
-  Widget build(BuildContext context, WidgetHandle use) {
-    scopeCapsule.override(scopeCapsuleFacory(3));
     final count = use(getSome);
     return switch (count) {
       AsyncData<int>(:final data) => Text(data.toString()),
@@ -115,27 +72,16 @@ class Consomer extends RearchConsumer {
   }
 }
 
-(int, void Function()) scopedCount(CapsuleHandle use, int startingCount) {
-  final (count, setCount) = use.state(startingCount);
-  return (count, () => setCount(count + 1));
-}
+(int, void Function()) scopeCapsule(CapsuleHandle use) => emptyCapsule;
 
 extension Override<T> on Capsule<T> {
-  void override(Capsule<T> newCapsule) => (this, newCapsule);
+  void override(Capsule<T> newCapsule, [List<Object?>? keys]) =>
+      (this, newCapsule);
 }
 
-(int, void Function()) scopeCapsule(CapsuleHandle use) => emptyCapsule;
-(int, void Function()) Function(CapsuleHandle use) scopeCapsuleFacory(
-        int initial) =>
-    (use) {
-      final (count, setCount) = use.state(initial);
-      return (count, () => setCount(count + 1));
-    };
-
 Never get emptyCapsule =>
-    throw 'Tried to call an emptyCapsule without overriding it';
-
-int countCapsule(CapsuleHandle use) => 0;
+    throw StateError('An empty capsule cannot be used if not overriden first'
+        "(as its implementation won't exist yet)! ");
 
 Future<int> deleyadedFuture(CapsuleHandle use) {
   final (count, setState) = use.state(0);
