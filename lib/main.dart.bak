@@ -1,0 +1,208 @@
+import 'dart:math';
+
+import 'package:flutter/material.dart';
+
+void main() {
+  fun();
+  runApp(const BaseWidget());
+}
+
+class BaseWidget extends StatelessWidget {
+  const BaseWidget({super.key});
+
+  Widget builder(context, setState) {
+    print("Builder called");
+    return ElevatedButton(
+        onPressed: () => setState(() {}), child: Text('click'));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    String data = 'youpi';
+    print('build');
+    return MaterialApp(
+        home: Scaffold(
+            body: Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Column(
+        children: [
+          TextFormField(
+            controller: TextEditingController(),
+          ),
+          StatefulBuilder(builder: builder)
+        ],
+      ),
+    )));
+  }
+}
+
+extension type Ex<T>(T data) {}
+
+const _chars = 'AaBbCcDdEeFfGgHhIiJjKkLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz1234567890';
+Random _rnd = Random();
+
+String getRandomString(int length) => String.fromCharCodes(Iterable.generate(
+    length, (_) => _chars.codeUnitAt(_rnd.nextInt(_chars.length))));
+
+Expando<String> data = Expando<String>();
+
+Map<String, dynamic> cache = {};
+
+extension type Nx._(int _) implements int {
+  factory Nx(int value) {
+    final String hash = getRandomString(15);
+    return cache[hash] = Nx._(value);
+  }
+
+  // String get value => data[this]!;
+  // set value(String value) => data[this] = value;
+}
+
+extension NxExt on int {
+  Nx get nx => Nx(this);
+}
+
+fun2(String s) {}
+
+func3(int i) {}
+
+fun() {
+  final nx1 = Nx(2);
+  final nx2 = Nx(2);
+  print(2 as Nx);
+  func3(nx2);
+  // nx1.value = 'some vale';
+  // nx2.value = 'some other vale';
+  // print(nx1.value);
+  // print(nx2.value);
+}
+
+class TestWidget extends HookWidget {
+  final String initialText;
+  const TestWidget(this.initialText, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller =
+        use(() => TextEditingController(text: initialText), [initialText]);
+    return Column(
+      children: [
+        TextFormField(
+          controller: TextEditingController(),
+        ),
+        Text(initialText),
+      ],
+    );
+  }
+}
+
+TextEditingController textControllerCapsule({String? initialValue}) {
+  print('capsule pop $initialValue');
+  return TextEditingController(text: initialValue);
+}
+
+class HookElement extends StatelessElement {
+  HookElement(super.widget);
+
+  final Map<Capsule, dynamic> capsules = {};
+  final Map<Capsule, Function> disposables = {};
+
+  @override
+  void unmount() {
+    disposables.forEach((capsule, deployer) {
+      if (capsules[capsule] != null) {
+        deployer(capsules[capsule]);
+      }
+    });
+    super.unmount();
+  }
+
+  @override
+  Widget build() {
+    use._hookElement = this;
+    // ignore: invalid_use_of_protected_member
+    final result = (widget as StatelessWidget).build(this);
+    use._hookElement = null;
+    return result;
+  }
+}
+
+typedef Capsule<T, E extends CapsuleHandle> = T Function(E use);
+typedef CapsuleDeployer<T> = void Function(T);
+
+extension Disponse<T, E extends CapsuleHandle> on Capsule<T, E> {
+  void onDispose(CapsuleDeployer<T> deployer) {
+    use._hookElement?.disposables[this] = deployer;
+  }
+}
+
+class UseParadigm {
+  HookElement? _hookElement;
+
+  T call<T, E extends CapsuleHandle>(Capsule<T, E> capsule,
+      {E? args, List<Object?>? keys}) {
+    return _hookElement?.capsules[capsule] ??= capsule(args!);
+  }
+
+  state(VoidCallback capsule) {}
+}
+
+Capsule<T, E> defer<T, E extends CapsuleHandle>(
+    Capsule<T, E> capsule, CapsuleDeployer<T> deployer) {
+  return capsule;
+}
+
+Capsule<T, E> memo<T, E extends CapsuleHandle>(
+    Capsule<T, E> capsule, Object? key) {
+  return capsule;
+}
+
+final class CapsuleDataHandle<T> {
+  final T data;
+
+  CapsuleDataHandle({required this.data});
+}
+
+class CapsuleHandle {}
+
+int counter(CapsuleHandle use) => 0;
+
+someFunc<T, E extends CapsuleHandle>(
+  Capsule<T, E> capsule,
+) {}
+
+typedef Test<T, E> = T Function(E);
+
+tester<T, E>(Test<T, E> test, {E? arg}) {}
+
+callback((String name, int age) data) {}
+
+test() {
+  tester(callback, arg: ('', 0));
+  const someText = '';
+  final controller = use(
+      defer(
+        memo(() => TextEditingController(text: someText),
+            (someText, 'some string')),
+        (controller) => controller.dispose(),
+      ),
+      null);
+}
+
+final use = UseParadigm();
+
+abstract class HookWidget extends StatelessWidget {
+  const HookWidget({super.key});
+
+  @override
+  StatelessElement createElement() => HookElement(this);
+}
+
+class HookScope extends InheritedWidget {
+  const HookScope({super.key, required super.child});
+
+  @override
+  bool updateShouldNotify(covariant InheritedWidget oldWidget) {
+    throw UnimplementedError();
+  }
+}
