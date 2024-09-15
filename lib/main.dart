@@ -103,6 +103,7 @@ class Consomer extends RearchConsumer {
 
   @override
   Widget build(BuildContext context, WidgetHandle use) {
+    scopeCapsule.override(scopeCapsuleFacory(3));
     final count = use(getSome);
     return switch (count) {
       AsyncData<int>(:final data) => Text(data.toString()),
@@ -118,6 +119,21 @@ class Consomer extends RearchConsumer {
   final (count, setCount) = use.state(startingCount);
   return (count, () => setCount(count + 1));
 }
+
+extension Override<T> on Capsule<T> {
+  void override(Capsule<T> newCapsule) => (this, newCapsule);
+}
+
+(int, void Function()) scopeCapsule(CapsuleHandle use) => emptyCapsule;
+(int, void Function()) Function(CapsuleHandle use) scopeCapsuleFacory(
+        int initial) =>
+    (use) {
+      final (count, setCount) = use.state(initial);
+      return (count, () => setCount(count + 1));
+    };
+
+Never get emptyCapsule =>
+    throw 'Tried to call an emptyCapsule without overriding it';
 
 int countCapsule(CapsuleHandle use) => 0;
 
