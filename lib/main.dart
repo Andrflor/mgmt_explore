@@ -72,16 +72,18 @@ class SomeWidget extends RearchConsumer {
   }
 }
 
-(int, void Function()) scopeCapsule(CapsuleHandle use) => emptyCapsule;
+(int, void Function()) scopeCapsule(CapsuleHandle use) => abstractCapsule;
 
 extension Override<T> on Capsule<T> {
   void override(Capsule<T> newCapsule, [List<Object?>? keys]) =>
       (this, newCapsule);
 }
 
-Never get emptyCapsule =>
-    throw StateError('An empty capsule cannot be used if not overriden first'
-        "(as its implementation won't exist yet)! ");
+Never get abstractCapsule => throw StateError(
+    'An abstract capsule cannot be used if not implemented first'
+    "(as its implementation won't exist yet)! "
+    'To implement it you need to call .override in a widget build method'
+    "and provide the concrete implementation");
 
 Future<int> deleyadedFuture(CapsuleHandle use) {
   final (count, setState) = use.state(0);
