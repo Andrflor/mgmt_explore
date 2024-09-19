@@ -5,18 +5,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_rearch/flutter_rearch.dart';
 
 void main() {
-  // runApp(const App());
-  runApp(const MaterialApp(home: ExerciceView()));
+  runApp(const App());
+  // runApp(const MaterialApp(home: ExerciceView()));
 }
 
-class App extends HookWidget {
+class App extends FlowWidget {
   const App({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final (value, setter) = use.state('youpi');
-    final (initial, otherSetter) = use(countManager);
-    final countPlusOne = use(countPlusOneCapsule);
+    final (value, setter) = $state('youpi');
+    final (initial, otherSetter) = $(countManager);
+    final countPlusOne = $(countPlusOneCapsule);
     return MaterialApp(
         home: Scaffold(
             body: Padding(
@@ -51,12 +51,250 @@ class App extends HookWidget {
             key: ValueKey(3),
             data: 3,
           ),
+          const InnerWidget(),
           // Expanded(
           //     child: ListView.builder(
           //         itemBuilder: (context, index) => SomeWidget(data: index)))
         ],
       ),
     )));
+  }
+}
+
+final Map<Function(), _CapsuleFlow> _flows = {};
+_NodeFlow? _currentFlow;
+
+T $register<T>(T Function() Function() effect, [VoidCallback? onDispose]) {
+  assert(
+      _currentFlow != null,
+      throw StateError(
+          'Only use side effects inside a capsule or a HookWidget build'));
+  return _currentFlow!.register(effect, onDispose);
+}
+
+T $<T>(T Function() capsule) {
+  assert(_currentFlow != null,
+      throw StateError('Only use \$ inside a capsule or a HookWidget build'));
+  return ((_flows[capsule] ??= _CapsuleFlow(capsule))
+        ..dependencies.add(_currentFlow!))
+      .data;
+}
+
+class _EffectFlow<T> extends _NodeFlow<T> {
+  final _NodeFlow dependency;
+  late T data;
+
+  _EffectFlow(T Function() Function() effect, this.dependency,
+      [VoidCallback? onDispose])
+      : super._(onDispose) {
+    final oldFlow = _currentFlow;
+    _currentFlow = this;
+    try {
+      capsule = effect();
+      data = capsule();
+    } finally {
+      _currentFlow = oldFlow;
+    }
+  }
+
+  void call() {
+    final oldFlow = _currentFlow;
+    _currentFlow = this;
+    try {
+      data = capsule();
+    } finally {
+      _currentFlow = oldFlow;
+    }
+  }
+
+  @override
+  void rebuild() {
+    sideEffectIndex = 0;
+    final oldData = data;
+    this();
+    if (oldData != data) {
+      dependency.rebuild();
+    }
+  }
+}
+
+class _CapsuleFlow<T> extends _NodeFlow<T> {
+  final Set<_NodeFlow> dependencies = {};
+
+  _CapsuleFlow(super.capsule, [super.onDispose]) {
+    this();
+  }
+
+  late T data;
+
+  void call() {
+    final oldFlow = _currentFlow;
+    _currentFlow = this;
+    try {
+      data = capsule();
+    } finally {
+      _currentFlow = oldFlow;
+    }
+  }
+
+  @override
+  void rebuild() {
+    sideEffectIndex = 0;
+    final oldData = data;
+    this();
+    if (oldData != data) {
+      for (final capsuleFlow in dependencies) {
+        capsuleFlow.rebuild();
+      }
+    }
+  }
+}
+
+class _TopFlow extends _NodeFlow<void> {
+  _TopFlow(super.capsule);
+
+  @override
+  void rebuild() {
+    sideEffectIndex = 0;
+    capsule();
+  }
+}
+
+(int, void Function(int)) $count(int value) => $state(value);
+
+TextEditingController $textEditingController(
+    {String? initialText, Object? deps = ()}) {
+  final controller =
+      $memo(() => TextEditingController(text: initialText), deps);
+  $dispose(controller);
+  return controller;
+}
+
+void Function() _voidEffect() => () {};
+void $onDispose<T>(VoidCallback? cleanup) => $register(_voidEffect, cleanup);
+void $dispose<T>(T value) => $onDispose(() => (value as dynamic).dispose());
+
+T? $previous<T>(T current) {
+  final (value, setter) = $state<T?>(null);
+  final prev = value;
+  setter(current);
+  return prev;
+}
+
+void $effect(Function()? Function() effect, [Object? deps = ()]) {
+  final dispose = $memo(effect, deps);
+  $onDispose(dispose);
+}
+
+T $memo<T>(T Function() memo, [Object? deps = ()]) {
+  final previousDeps = $previous(deps);
+  final (getter, setter) = _$lazyState<T>();
+  if (previousDeps != deps) {
+    setter(memo());
+  }
+  return getter();
+}
+
+(T Function(), void Function(T)) _$lazyState<T>() => $register(() {
+      final rebuild = $rebuild();
+      late T data;
+
+      void setData(T e) {
+        if (e != data) {
+          data = e;
+          rebuild();
+        }
+      }
+
+      T getData() => data;
+      return () => (getData, setData);
+    });
+
+void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
+
+(T, void Function(T)) $state<T>(T initial) => $register(() {
+      final rebuild = $rebuild();
+      T data = initial;
+      void setData(T e) {
+        if (data != e) {
+          data = e;
+          rebuild();
+        }
+      }
+
+      return () => (data, setData);
+    });
+
+abstract class _NodeFlow<T> {
+  int sideEffectIndex = 0;
+  final VoidCallback? onDispose;
+  late final T Function() capsule;
+  final List<_EffectFlow> effects = [];
+  _NodeFlow(this.capsule, [this.onDispose]);
+
+  _NodeFlow._(this.onDispose);
+
+  T register(T Function() Function() effect, [VoidCallback? onDispose]) {
+    if (effects.length == sideEffectIndex) {
+      effects.add(_EffectFlow(effect, this, onDispose));
+    }
+    return effects[sideEffectIndex++].data as T;
+  }
+
+  @mustCallSuper
+  void dispose() {
+    onDispose?.call();
+    for (final effect in effects) {
+      effect.dispose();
+    }
+    effects.clear();
+  }
+
+  void rebuild();
+}
+
+abstract class FlowWidget extends StatelessWidget {
+  const FlowWidget({super.key});
+
+  @override
+  StatelessElement createElement() => FlowElement(this);
+}
+
+class FlowElement extends StatelessElement {
+  FlowElement(super.widget);
+  late final _flow = _TopFlow(markNeedsBuild);
+
+  @override
+  Widget build() {
+    final oldFlow = _currentFlow;
+    _currentFlow = _flow;
+    try {
+      return super.build();
+    } finally {
+      _currentFlow = oldFlow;
+    }
+  }
+
+  @override
+  void unmount() {
+    _flow.dispose();
+    super.unmount();
+  }
+}
+
+class InnerWidget extends FlowWidget {
+  const InnerWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final (initial, otherSetter) = $(countManager);
+    final countPlusOne = $(countPlusOneCapsule);
+
+    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Text(initial.toString()),
+      Text(countPlusOne.toString()),
+      ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement'))
+    ]);
   }
 }
 
@@ -81,6 +319,9 @@ class SomeWidget extends HookWidget {
     );
   }
 }
+
+int sharedInt() => empty;
+Never get empty => throw '';
 
 class SomeOtherWidget extends HookWidget {
   const SomeOtherWidget({super.key});
@@ -116,20 +357,19 @@ AsyncValue<int> getSome(CapsuleHandle use) {
   return use.future(delayed);
 }
 
-(int, void Function()) countManager(CapsuleHandle use) {
-  final (count, setCount) = use.state(0);
+(int, void Function()) countManager() {
+  final (count, setCount) = $state(0);
   return (count, () => setCount(count + 1));
 }
 
 // This capsule provides the current count, plus one.
-int countPlusOneCapsule(CapsuleHandle use) => use(countManager).$1 + 1;
+int countPlusOneCapsule() => $(countManager).$1 + 1;
 
 class ExerciceView extends HookWidget {
   const ExerciceView({super.key});
   @override
   Widget build(BuildContext context) {
     final (exerciceState, exerciceDispatch) = use(exerciceReducerCapsule);
-    print((exerciceState as ExerciceSuccess).data.length);
     return Scaffold(
       body: Column(
         children: [
@@ -191,7 +431,6 @@ class ModifyExercice extends HookWidget {
     final bodypartController =
         use.textEditingController(initialText: exercice?.bodyPart);
     final (valid, setValid) = use.state(false);
-    // use.inContext(capsule);
     use.effect(() {
       void validate() {
         setValid(nameController.text.isNotEmpty &&
