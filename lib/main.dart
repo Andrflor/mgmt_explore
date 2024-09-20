@@ -15,7 +15,7 @@ class App extends FlowWidget {
   @override
   Widget build(BuildContext context) {
     final (value, setter) = $state('youpi');
-    final (initial, otherSetter) = $(countManager);
+    final (initial, otherSetter) = $(countIncrementor);
     final countPlusOne = $(countPlusOneCapsule);
     return MaterialApp(
         home: Scaffold(
@@ -165,50 +165,47 @@ class _TopFlow extends _NodeFlow<void> {
 TextEditingController $textEditingController(
     {String? initialText, Object? deps = ()}) {
   final controller =
-      $memo(() => TextEditingController(text: initialText), deps);
+      $cache(() => TextEditingController(text: initialText), deps);
   $dispose(controller);
   return controller;
 }
 
 void Function() _voidEffect() => () {};
-void $onDispose<T>(VoidCallback? cleanup) => $register(_voidEffect, cleanup);
+void $onDispose(VoidCallback? cleanup) => $register(_voidEffect, cleanup);
 void $dispose<T>(T value) => $onDispose(() => (value as dynamic).dispose());
+
+void $once(VoidCallback callback) => $register(() {
+      callback();
+      return _voidEffect();
+    });
+
+void $listen<T extends Listenable>(T listenable, VoidCallback listener) {
+  $register(() {
+    listenable.addListener(listener);
+    return () {};
+  }, () => listenable.removeListener(listener));
+}
 
 T? $previous<T>(T current) {
   final (value, setter) = $state<T?>(null);
-  final prev = value;
+  // TODO(andrflor): fix rebuild
   setter(current);
-  return prev;
+  return value;
 }
 
-void $effect(Function()? Function() effect, [Object? deps = ()]) {
-  final dispose = $memo(effect, deps);
+void $effect(Function()? Function() effect, [Object? key]) {
+  final dispose = $cache(effect, key);
   $onDispose(dispose);
 }
 
-T $memo<T>(T Function() memo, [Object? deps = ()]) {
-  final previousDeps = $previous(deps);
-  final (getter, setter) = _$lazyState<T>();
-  if (previousDeps != deps) {
+T $cache<T>(T Function() memo, [Object? key]) {
+  final previousKey = $previous(key);
+  final (value, setter) = $state<T>(memo());
+  if (previousKey != key) {
     setter(memo());
   }
-  return getter();
+  return value;
 }
-
-(T Function(), void Function(T)) _$lazyState<T>() => $register(() {
-      final rebuild = $rebuild();
-      late T data;
-
-      void setData(T e) {
-        if (e != data) {
-          data = e;
-          rebuild();
-        }
-      }
-
-      T getData() => data;
-      return () => (getData, setData);
-    });
 
 void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
 
@@ -218,6 +215,7 @@ void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
       void setData(T e) {
         if (data != e) {
           data = e;
+          // TODO(andrflor): fix rebuild
           rebuild();
         }
       }
@@ -287,13 +285,19 @@ class InnerWidget extends FlowWidget {
 
   @override
   Widget build(BuildContext context) {
-    final (initial, otherSetter) = $(countManager);
+    final (initial, otherSetter) = $(countDecrementor);
     final countPlusOne = $(countPlusOneCapsule);
+    final result = $(getSome);
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       Text(initial.toString()),
       Text(countPlusOne.toString()),
-      ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement'))
+      ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement')),
+      switch (result) {
+        AsyncLoading<int>() => const CircularProgressIndicator(),
+        AsyncError<int>() => Text('Error'),
+        AsyncSuccess<int>(:final data) => Text('Success $data'),
+      }
     ]);
   }
 }
@@ -342,28 +346,77 @@ class SomeOtherWidget extends HookWidget {
 
 (int, void Function()) scopeCapsule(CapsuleHandle use) => abstractCapsule;
 
-Future<int> deleyadedFuture(CapsuleHandle use) =>
-    deleyadedFutureFactory(1)(use);
-Future<int> Function(CapsuleHandle use) deleyadedFutureFactory(int ratio) =>
-    (use) {
-      final (count, setState) = use.state(0);
+Future<int> deleyadedFuture() => deleyadedFutureFactory(1)();
+Future<int> Function() deleyadedFutureFactory(int ratio) => () {
+      final (count, setState) = $(counterCapsule);
       Future.delayed(Duration(seconds: 4 * ratio), () => setState(count + 1));
       return Future.delayed(Duration(seconds: 2 * ratio), () => count)
           .then((delayed) => delayed + 1);
     };
 
-AsyncValue<int> getSome(CapsuleHandle use) {
-  final delayed = use(deleyadedFuture);
-  return use.future(delayed);
+AsyncState<int> getSome() {
+  print('called again');
+  final delayed = $(deleyadedFuture);
+  return $future(delayed);
 }
 
-(int, void Function()) countManager() {
-  final (count, setCount) = $state(0);
+sealed class AsyncState<T> extends Equatable {
+  const AsyncState();
+}
+
+class AsyncLoading<T> extends AsyncState<T> {
+  const AsyncLoading();
+
+  @override
+  List<Object?> get props => [];
+}
+
+class AsyncError<T> extends AsyncState<T> {
+  final Object error;
+  const AsyncError(this.error);
+
+  @override
+  List<Object?> get props => [error];
+}
+
+class AsyncSuccess<T> extends AsyncState<T> {
+  final T data;
+  const AsyncSuccess(this.data);
+
+  @override
+  List<Object?> get props => [data];
+}
+
+AsyncState<T> $future<T>(Future<T> future) {
+  final cachedFuture = $cache(() => future, future);
+  return _$future(future);
+}
+
+AsyncState<T> _$future<T>(Future<T> future) => $register(() {
+      AsyncState<T> result = AsyncLoading<T>();
+      // // final rebuild = $rebuild();
+      // future.then((value) {
+      //   result = AsyncSuccess(value);
+      // }, onError: (error) {
+      //   result = AsyncError(error);
+      // });
+      return () => result;
+    });
+
+(int, void Function(int)) counterCapsule() => $state(0);
+
+(int, void Function()) countIncrementor() {
+  final (count, setCount) = $(counterCapsule);
   return (count, () => setCount(count + 1));
 }
 
+(int, void Function()) countDecrementor() {
+  final (count, setCount) = $(counterCapsule);
+  return (count, () => setCount(count + 2));
+}
+
 // This capsule provides the current count, plus one.
-int countPlusOneCapsule() => $(countManager).$1 + 1;
+int countPlusOneCapsule() => $(countIncrementor).$1 % 2;
 
 class ExerciceView extends HookWidget {
   const ExerciceView({super.key});
