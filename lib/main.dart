@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_rearch/flutter_rearch.dart';
 
 void main() {
-  // runApp(const App());
+  runApp(const App());
   // runApp(const MaterialApp(home: ExerciceView()));
-  runApp(const MaterialApp(home: SimpleWidget()));
+  // runApp(const MaterialApp(home: SimpleWidget()));
 }
 
 class App extends FlowWidget {
@@ -68,7 +68,6 @@ class SimpleWidget extends FlowWidget {
   @override
   Widget build(BuildContext context) {
     final result = $(getSome);
-    print(result);
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       switch (result) {
@@ -83,12 +82,12 @@ class SimpleWidget extends FlowWidget {
 final Map<Function(), _CapsuleFlow> _flows = {};
 _NodeFlow? _currentFlow;
 
-T $register<T>(T Function() Function() effect, [VoidCallback? onDispose]) {
+T $cache<T>(T Function() callback, [Object? key]) {
   assert(
       _currentFlow != null,
       throw StateError(
           'Only use side effects inside a capsule or a HookWidget build'));
-  return _currentFlow!.register(effect, onDispose);
+  return _currentFlow!.cache(callback, key);
 }
 
 T $<T>(T Function() capsule) {
@@ -97,37 +96,6 @@ T $<T>(T Function() capsule) {
   return ((_flows[capsule] ??= _CapsuleFlow(capsule))
         ..dependencies.add(_currentFlow!))
       .data;
-}
-
-class _EffectFlow<T> extends _NodeFlow<T> {
-  final _NodeFlow dependency;
-  T? data;
-
-  _EffectFlow(T Function() Function() effect, this.dependency,
-      [VoidCallback? onDispose])
-      : super._(onDispose) {
-    capsule = effect();
-  }
-
-  void call() {
-    final oldFlow = _currentFlow;
-    _currentFlow = this;
-    try {
-      data = capsule();
-    } finally {
-      _currentFlow = oldFlow;
-    }
-  }
-
-  @override
-  void rebuild() {
-    sideEffectIndex = 0;
-    final oldData = data;
-    this();
-    if (oldData != data) {
-      dependency.rebuild();
-    }
-  }
 }
 
 class _CapsuleFlow<T> extends _NodeFlow<T> {
@@ -151,7 +119,7 @@ class _CapsuleFlow<T> extends _NodeFlow<T> {
 
   @override
   void rebuild() {
-    sideEffectIndex = 0;
+    cacheIndex = 0;
     final oldData = data;
     this();
     if (oldData != data) {
@@ -167,36 +135,36 @@ class _TopFlow extends _NodeFlow<void> {
 
   @override
   void rebuild() {
-    sideEffectIndex = 0;
+    cacheIndex = 0;
     capsule();
   }
 }
 
 (int, void Function(int)) $count(int value) => $state(value);
 
-TextEditingController $textEditingController(
-    {String? initialText, Object? deps = ()}) {
-  final controller =
-      $cache(() => TextEditingController(text: initialText), deps);
-  $dispose(controller);
-  return controller;
-}
+// TextEditingController $textEditingController(
+//     {String? initialText, Object? deps = ()}) {
+//   final controller =
+//       $cache(() => TextEditingController(text: initialText), deps);
+//   $dispose(controller);
+//   return controller;
+// }
 
-void Function() _voidEffect() => () {};
-void $onDispose(VoidCallback? cleanup) => $register(_voidEffect, cleanup);
-void $dispose<T>(T value) => $onDispose(() => (value as dynamic).dispose());
+// void Function() _voidEffect() => () {};
+// void $onDispose(VoidCallback? cleanup) => $register(_voidEffect, cleanup);
+// void $dispose<T>(T value) => $onDispose(() => (value as dynamic).dispose());
 
-void $once(VoidCallback callback) => $register(() {
-      callback();
-      return _voidEffect();
-    });
+// void $once(VoidCallback callback) => $register(() {
+//       callback();
+//       return _voidEffect();
+//     });
 
-void $listen<T extends Listenable>(T listenable, VoidCallback listener) {
-  $register(() {
-    listenable.addListener(listener);
-    return () {};
-  }, () => listenable.removeListener(listener));
-}
+// void $listen<T extends Listenable>(T listenable, VoidCallback listener) {
+//   $register(() {
+//     listenable.addListener(listener);
+//     return () {};
+//   }, () => listenable.removeListener(listener));
+// }
 
 T? $previous<T>(T current) {
   final (value, setter) = $state<T?>(null);
@@ -204,30 +172,25 @@ T? $previous<T>(T current) {
   return value;
 }
 
-void $effect(Function()? Function() effect, [Object? key]) {
-  final previousKey = $previous(key);
-  final (value, setter) = $state<Function()?>(null);
-  if (previousKey != key || previousKey == null) {
-    value?.call();
-    final newValue = effect();
-    setter(newValue);
-  }
-}
+// void $effect(Function()? Function() effect, [Object? key]) {
+//   final previousKey = $previous(key);
+//   final (value, setter) = $state<Function()?>(null);
+//   if (previousKey != key || previousKey == null) {
+//     value?.call();
+//     final newValue = effect();
+//     setter(newValue);
+//   }
+// }
 
-T $cache<T>(T Function() memo, [Object? key]) {
-  final previousKey = $previous(key);
-  final (value, setter) = $state<T?>(null);
-  if (value == null || previousKey != key) {
-    final value = memo();
-    setter(value);
-    return value;
-  }
-  return value;
+void $effect(Function()? Function() effect, [Object? key]) {
+  $cache(() {
+    effect();
+  }, key);
 }
 
 void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
 
-(T Function(), void Function(T)) $stateGetter<T>(T initial) => $register(() {
+(T Function(), void Function(T)) $stateGetter<T>(T initial) => $cache(() {
       final rebuild = $rebuild();
       T data = initial;
       void setData(T e) {
@@ -237,49 +200,38 @@ void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
         }
       }
 
-      T getData() {
-        return data;
-      }
-
-      return () => (getData, setData);
+      T getData() => data;
+      return (getData, setData);
     });
 
-(T, void Function(T)) $state<T>(T initial) => $register(() {
-      final rebuild = $rebuild();
-      T data = initial;
-      void setData(T e) {
-        if (data != e) {
-          data = e;
-          rebuild();
-        }
-      }
-
-      return () => (data, setData);
-    });
+(T, void Function(T)) $state<T>(T initial) {
+  final (getter, setter) = $stateGetter(initial);
+  return (getter(), setter);
+}
 
 abstract class _NodeFlow<T> {
-  int sideEffectIndex = 0;
+  int cacheIndex = 0;
   final VoidCallback? onDispose;
   late final T Function() capsule;
-  final List<_EffectFlow> effects = [];
+  final List<(Object?, Object?)> indexCache = [];
   _NodeFlow(this.capsule, [this.onDispose]);
 
-  _NodeFlow._(this.onDispose);
-
-  T register(T Function() Function() effect, [VoidCallback? onDispose]) {
-    if (effects.length == sideEffectIndex) {
-      effects.add(_EffectFlow(effect, this, onDispose));
+  T cache(T Function() callback, Object? key) {
+    if (indexCache.length == cacheIndex) {
+      indexCache.add((callback(), key));
     }
-    return (effects[sideEffectIndex++]..call()).data as T;
+    final cache = indexCache[cacheIndex];
+    if (cache.$2 != key) {
+      return (indexCache[cacheIndex++] = (callback(), key)).$1;
+    }
+    cacheIndex++;
+    return cache.$1 as T;
   }
 
   @mustCallSuper
   void dispose() {
     onDispose?.call();
-    for (final effect in effects) {
-      effect.dispose();
-    }
-    effects.clear();
+    indexCache.clear();
   }
 
   void rebuild();
@@ -321,17 +273,17 @@ class InnerWidget extends FlowWidget {
   Widget build(BuildContext context) {
     final (initial, otherSetter) = $(countDecrementor);
     final countPlusOne = $(countPlusOneCapsule);
-    final result = $(getSome);
+    // final result = $(getSome);
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       Text(initial.toString()),
       Text(countPlusOne.toString()),
       ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement')),
-      switch (result) {
-        AsyncLoading<int>() => const CircularProgressIndicator(),
-        AsyncError<int>() => Text('Error'),
-        AsyncSuccess<int>(:final data) => Text('Success $data'),
-      }
+      // switch (result) {
+      //   AsyncLoading<int>() => const CircularProgressIndicator(),
+      //   AsyncError<int>() => Text('Error'),
+      //   AsyncSuccess<int>(:final data) => Text('Success $data'),
+      // }
     ]);
   }
 }
@@ -390,7 +342,10 @@ Future<int> Function() deleyadedFutureFactory(int ratio) => () {
 
 AsyncState<int> getSome() {
   final delayed = $(deleyadedFuture);
-  print(delayed.hashCode);
+  $effect(() {
+    print(delayed.hashCode);
+    return () => print('diposed ${delayed.hashCode}');
+  }, delayed);
   return $future(delayed);
 }
 
@@ -434,32 +389,21 @@ AsyncState<T> $future2<T>(Future<T> future) {
   return getter();
 }
 
-AsyncState<T> $future<T>(Future<T> future) => $register(() {
+AsyncState<T> $future<T>(Future<T> future) => $cache(() {
       AsyncState<T> asyncState = const AsyncLoading();
-      StreamSubscription<T>? subscription;
-      Future<T>? current;
-      return () {
+      AsyncState<T> stateGetter() => asyncState;
+      if (asyncState is AsyncLoading) {
         final rebuild = $rebuild();
-        if (future != current) {
-          if (current != null) {
-            current = future;
-            asyncState = const AsyncLoading();
-            rebuild();
-          } else {
-            current = future;
-          }
-          subscription?.cancel();
-          subscription = future.asStream().listen((e) {
-            asyncState = AsyncSuccess(e);
-            rebuild();
-          }, onError: (e) {
-            asyncState = AsyncSuccess(e);
-            rebuild();
-          });
-        }
-        return asyncState;
-      };
-    });
+        future.then((data) {
+          asyncState = AsyncSuccess(data);
+          rebuild();
+        }, onError: (error) {
+          asyncState = AsyncError(error);
+          rebuild();
+        });
+      }
+      return stateGetter;
+    }, future)();
 
 (int, void Function(int)) counterCapsule() => $state(0);
 
@@ -470,7 +414,7 @@ AsyncState<T> $future<T>(Future<T> future) => $register(() {
 
 (int, void Function()) countDecrementor() {
   final (count, setCount) = $(counterCapsule);
-  return (count, () => setCount(count + 2));
+  return (count, () => setCount(count - 1));
 }
 
 // This capsule provides the current count, plus one.
