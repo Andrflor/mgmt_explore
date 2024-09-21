@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_rearch/flutter_rearch.dart';
 
 void main() {
-  runApp(const App());
+  // runApp(const App());
   // runApp(const MaterialApp(home: ExerciceView()));
-  // runApp(const MaterialApp(home: SimpleWidget()));
+  runApp(const MaterialApp(home: SimpleWidget()));
 }
 
 class App extends FlowWidget {
@@ -17,7 +17,7 @@ class App extends FlowWidget {
   Widget build(BuildContext context) {
     final (value, setter) = $state('youpi');
     final (initial, otherSetter) = $(countIncrementor);
-    final countPlusOne = $(countPlusOneCapsule);
+    final countPrevious = $previous(initial);
     return MaterialApp(
         home: Scaffold(
             body: Padding(
@@ -34,7 +34,7 @@ class App extends FlowWidget {
             child: const Text('click'),
           ),
           Text(initial.toString()),
-          Text(countPlusOne.toString()),
+          Text(countPrevious.toString()),
           ElevatedButton(
             onPressed: otherSetter,
             child: const Text('clock'),
@@ -82,7 +82,7 @@ class SimpleWidget extends FlowWidget {
 final Map<Function(), _CapsuleFlow> _flows = {};
 _NodeFlow? _currentFlow;
 
-T $cache<T>(T Function() callback, [Object? key]) {
+T $cache<T>((T Function(), VoidCallback?) Function() callback, [Object? key]) {
   assert(
       _currentFlow != null,
       throw StateError(
@@ -184,13 +184,13 @@ T? $previous<T>(T current) {
 
 void $effect(Function()? Function() effect, [Object? key]) {
   $cache(() {
-    effect();
+    return (effect, null);
   }, key);
 }
 
 void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
 
-(T Function(), void Function(T)) $stateGetter<T>(T initial) => $cache(() {
+(T, void Function(T)) $stateGetter<T>(T initial) => $cache(() {
       final rebuild = $rebuild();
       T data = initial;
       void setData(T e) {
@@ -200,37 +200,41 @@ void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
         }
       }
 
-      T getData() => data;
-      return (getData, setData);
+      // T getData() => data;
+      return (() => (data, setData), null);
     });
 
-(T, void Function(T)) $state<T>(T initial) {
-  final (getter, setter) = $stateGetter(initial);
-  return (getter(), setter);
-}
+(T, void Function(T)) $state<T>(T initial) => $stateGetter(initial);
+// final (getter, setter) = $stateGetter(initial);
+// return (getter(), setter);
+// }
 
 abstract class _NodeFlow<T> {
   int cacheIndex = 0;
   final VoidCallback? onDispose;
   late final T Function() capsule;
-  final List<(Object?, Object?)> indexCache = [];
+  final List<((Function(), VoidCallback?), Object?)> indexCache = [];
   _NodeFlow(this.capsule, [this.onDispose]);
 
-  T cache(T Function() callback, Object? key) {
+  T cache((T Function(), VoidCallback?) Function() callback, Object? key) {
     if (indexCache.length == cacheIndex) {
       indexCache.add((callback(), key));
     }
     final cache = indexCache[cacheIndex];
     if (cache.$2 != key) {
-      return (indexCache[cacheIndex++] = (callback(), key)).$1;
+      cache.$1.$2?.call();
+      return ((indexCache[cacheIndex++] = (callback(), key)).$1.$1)();
     }
     cacheIndex++;
-    return cache.$1 as T;
+    return (cache.$1.$1)() as T;
   }
 
   @mustCallSuper
   void dispose() {
     onDispose?.call();
+    for (final cached in indexCache) {
+      cached.$1.$2?.call();
+    }
     indexCache.clear();
   }
 
@@ -376,18 +380,10 @@ class AsyncSuccess<T> extends AsyncState<T> {
   List<Object?> get props => [data];
 }
 
-AsyncState<T> $future2<T>(Future<T> future) {
-  final (getter, setter) = $stateGetter<AsyncState<T>>(const AsyncLoading());
-  $effect(() {
-    // setter(const AsyncLoading());
-    final subscription = future.asStream().listen(
-        (e) => setter(AsyncSuccess(e)),
-        onError: (e) => setter(AsyncError(e)));
-    return subscription.cancel;
-  }, future);
-  // print((getter(), future.hashCode));
-  return getter();
-}
+T $memo<T>(T Function() memo, [Object? key]) => $cache(() {
+      final value = memo();
+      return (() => value, null);
+    }, key);
 
 AsyncState<T> $future<T>(Future<T> future) => $cache(() {
       AsyncState<T> asyncState = const AsyncLoading();
@@ -402,8 +398,8 @@ AsyncState<T> $future<T>(Future<T> future) => $cache(() {
           rebuild();
         });
       }
-      return stateGetter;
-    }, future)();
+      return (stateGetter, null);
+    }, future);
 
 (int, void Function(int)) counterCapsule() => $state(0);
 
