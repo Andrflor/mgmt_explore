@@ -5,9 +5,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_rearch/flutter_rearch.dart';
 
 void main() {
-  // runApp(const App());
+  runApp(const App());
   // runApp(const MaterialApp(home: ExerciceView()));
-  runApp(const MaterialApp(home: SimpleWidget()));
+  // runApp(const MaterialApp(home: SimpleWidget()));
 }
 
 class App extends FlowWidget {
@@ -18,6 +18,11 @@ class App extends FlowWidget {
     final (value, setter) = $state('youpi');
     final (initial, otherSetter) = $(countIncrementor);
     final countPrevious = $previous(initial);
+    print(initial < 0);
+    // TODO(andrflor): figure ou why it's called again and there is a null key sometimes
+    $effect(() {
+      print('hey');
+    }, initial < 0);
     return MaterialApp(
         home: Scaffold(
             body: Padding(
@@ -82,12 +87,13 @@ class SimpleWidget extends FlowWidget {
 final Map<Function(), _CapsuleFlow> _flows = {};
 _NodeFlow? _currentFlow;
 
-T $cache<T>((T Function(), VoidCallback?) Function() callback, [Object? key]) {
+T $effect<T>((T Function()?, VoidCallback?)? Function() callback,
+    [Object? key]) {
   assert(
       _currentFlow != null,
       throw StateError(
           'Only use side effects inside a capsule or a HookWidget build'));
-  return _currentFlow!.cache(callback, key);
+  return _currentFlow!.effect(callback, key);
 }
 
 T $<T>(T Function() capsule) {
@@ -182,15 +188,16 @@ T? $previous<T>(T current) {
 //   }
 // }
 
-void $effect(Function()? Function() effect, [Object? key]) {
-  $cache(() {
-    return (effect, null);
-  }, key);
-}
+// void $effect(Function()? Function() effect, [Object? key]) {
+//   $cache(() {
+//     final disposer = effect();
+//     return (() {}, disposer);
+//   }, key);
+// }
 
 void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
 
-(T, void Function(T)) $stateGetter<T>(T initial) => $cache(() {
+(T, void Function(T)) $stateGetter<T>(T initial) => $effect(() {
       final rebuild = $rebuild();
       T data = initial;
       void setData(T e) {
@@ -213,27 +220,30 @@ abstract class _NodeFlow<T> {
   int cacheIndex = 0;
   final VoidCallback? onDispose;
   late final T Function() capsule;
-  final List<((Function(), VoidCallback?), Object?)> indexCache = [];
+  final List<((Function()?, VoidCallback?)?, Object?)> indexCache = [];
   _NodeFlow(this.capsule, [this.onDispose]);
 
-  T cache((T Function(), VoidCallback?) Function() callback, Object? key) {
+  T effect((T Function()?, VoidCallback?)? Function() effect, Object? key) {
     if (indexCache.length == cacheIndex) {
-      indexCache.add((callback(), key));
+      indexCache.add((effect(), key));
+      print('ok');
     }
     final cache = indexCache[cacheIndex];
     if (cache.$2 != key) {
-      cache.$1.$2?.call();
-      return ((indexCache[cacheIndex++] = (callback(), key)).$1.$1)();
+      print((cache.$2, key));
+      print('done');
+      cache.$1?.$2?.call();
+      return ((indexCache[cacheIndex++] = (effect(), key)).$1?.$1)?.call() as T;
     }
     cacheIndex++;
-    return (cache.$1.$1)() as T;
+    return (cache.$1?.$1)?.call() as T;
   }
 
   @mustCallSuper
   void dispose() {
     onDispose?.call();
     for (final cached in indexCache) {
-      cached.$1.$2?.call();
+      cached.$1?.$2?.call();
     }
     indexCache.clear();
   }
@@ -347,8 +357,7 @@ Future<int> Function() deleyadedFutureFactory(int ratio) => () {
 AsyncState<int> getSome() {
   final delayed = $(deleyadedFuture);
   $effect(() {
-    print(delayed.hashCode);
-    return () => print('diposed ${delayed.hashCode}');
+    return (null, () => print('diposed ${delayed.hashCode}'));
   }, delayed);
   return $future(delayed);
 }
@@ -380,12 +389,12 @@ class AsyncSuccess<T> extends AsyncState<T> {
   List<Object?> get props => [data];
 }
 
-T $memo<T>(T Function() memo, [Object? key]) => $cache(() {
+T $memo<T>(T Function() memo, [Object? key]) => $effect(() {
       final value = memo();
       return (() => value, null);
     }, key);
 
-AsyncState<T> $future<T>(Future<T> future) => $cache(() {
+AsyncState<T> $future<T>(Future<T> future) => $effect(() {
       AsyncState<T> asyncState = const AsyncLoading();
       AsyncState<T> stateGetter() => asyncState;
       if (asyncState is AsyncLoading) {
