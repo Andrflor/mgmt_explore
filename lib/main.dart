@@ -18,8 +18,8 @@ class App extends FlowWidget {
     final (value, setter) = $state('youpi');
     final (initial, otherSetter) = $(countIncrementor);
     final countPrevious = $previous(initial);
-    print(initial < 0);
     // TODO(andrflor): figure ou why it's called again and there is a null key sometimes
+    $watch(value, (value) => print('the value is $value'));
     $effect(() {
       print('hey');
     }, initial < 0);
@@ -156,15 +156,6 @@ class _TopFlow extends _NodeFlow<void> {
 //   return controller;
 // }
 
-// void Function() _voidEffect() => () {};
-// void $onDispose(VoidCallback? cleanup) => $register(_voidEffect, cleanup);
-// void $dispose<T>(T value) => $onDispose(() => (value as dynamic).dispose());
-
-// void $once(VoidCallback callback) => $register(() {
-//       callback();
-//       return _voidEffect();
-//     });
-
 // void $listen<T extends Listenable>(T listenable, VoidCallback listener) {
 //   $register(() {
 //     listenable.addListener(listener);
@@ -172,32 +163,56 @@ class _TopFlow extends _NodeFlow<void> {
 //   }, () => listenable.removeListener(listener));
 // }
 
+// TODO(andrflor): find a way to get previous being disctinct
 T? $previous<T>(T current) {
-  final (value, setter) = $state<T?>(null);
-  setter(current);
-  return value;
+  final (previous, setPrevious) = $data<T?>(null);
+  $effect(() {
+    if (previous != current) {
+      setPrevious(current);
+    }
+  }, current);
+  return previous;
 }
 
-// void $effect(Function()? Function() effect, [Object? key]) {
-//   final previousKey = $previous(key);
-//   final (value, setter) = $state<Function()?>(null);
-//   if (previousKey != key || previousKey == null) {
-//     value?.call();
-//     final newValue = effect();
-//     setter(newValue);
-//   }
-// }
+void $onDispose(VoidCallback dispose) => $effect(() {
+      return (null, dispose);
+    });
 
-// void $effect(Function()? Function() effect, [Object? key]) {
-//   $cache(() {
-//     final disposer = effect();
-//     return (() {}, disposer);
-//   }, key);
-// }
+void $autoDispose<T>(T disposable) => $effect(() {
+      // TODO(andrflor): assert that the element is disposable
+      return (null, (disposable as dynamic).dispose());
+    }, disposable);
 
+bool $isFirstRun() {
+  final (firstRun, setIsFirstRun) = $data<bool>(true);
+  setIsFirstRun(false);
+  return firstRun;
+}
+
+void $watch<T>(T value, Function(T) watcher) {
+  final watch = !$isFirstRun();
+  $effect(() {
+    if (watch) {
+      watcher(value);
+    }
+  }, value);
+}
+
+// TODO(andrflor): rebuild during capsule build should be forbidden??
 void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
 
-(T, void Function(T)) $stateGetter<T>(T initial) => $effect(() {
+(T, void Function(T)) $data<T>(T initial) => $effect(() {
+      T data = initial;
+      void setData(T e) {
+        if (data != e) {
+          data = e;
+        }
+      }
+
+      return (() => (data, setData), null);
+    });
+
+(T, void Function(T)) $state<T>(T initial) => $effect(() {
       final rebuild = $rebuild();
       T data = initial;
       void setData(T e) {
@@ -207,14 +222,8 @@ void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
         }
       }
 
-      // T getData() => data;
       return (() => (data, setData), null);
     });
-
-(T, void Function(T)) $state<T>(T initial) => $stateGetter(initial);
-// final (getter, setter) = $stateGetter(initial);
-// return (getter(), setter);
-// }
 
 abstract class _NodeFlow<T> {
   int cacheIndex = 0;
@@ -226,12 +235,10 @@ abstract class _NodeFlow<T> {
   T effect((T Function()?, VoidCallback?)? Function() effect, Object? key) {
     if (indexCache.length == cacheIndex) {
       indexCache.add((effect(), key));
-      print('ok');
+      return indexCache[cacheIndex++].$1?.$1?.call();
     }
     final cache = indexCache[cacheIndex];
     if (cache.$2 != key) {
-      print((cache.$2, key));
-      print('done');
       cache.$1?.$2?.call();
       return ((indexCache[cacheIndex++] = (effect(), key)).$1?.$1)?.call() as T;
     }
