@@ -161,14 +161,22 @@ void $listen<T extends Listenable>(T listenable, VoidCallback listener) =>
     }, listenable);
 
 // TODO(andrflor): find a way to get previous being disctinct
+// T? $previous<T>(T current) {
+//   final (previous, setPrevious) = $data<T?>(null);
+//   $effect(() {
+//     if (previous != current) {
+//       setPrevious(current);
+//     }
+//   }, current);
+//   return previous;
+// }
+
 T? $previous<T>(T current) {
-  final (previous, setPrevious) = $data<T?>(null);
-  $effect(() {
-    if (previous != current) {
-      setPrevious(current);
-    }
-  }, current);
-  return previous;
+  final (cache, setCache) = $data<(T?, T)>((null, current));
+  if (current != cache.$2) {
+    setCache((cache.$2, current));
+  }
+  return cache.$1;
 }
 
 void $onDispose(VoidCallback dispose) => $effect(() => (null, dispose));
