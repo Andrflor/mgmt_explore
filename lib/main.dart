@@ -18,7 +18,6 @@ class App extends FlowWidget {
     final (value, setter) = $state('youpi');
     final (initial, otherSetter) = $(countIncrementor);
     final countPrevious = $previous(initial);
-    // TODO(andrflor): figure ou why it's called again and there is a null key sometimes
     $watch(value, (value) => print('the value is $value'));
     $effect(() {
       print('hey');
@@ -148,20 +147,18 @@ class _TopFlow extends _NodeFlow<void> {
 
 (int, void Function(int)) $count(int value) => $state(value);
 
-// TextEditingController $textEditingController(
-//     {String? initialText, Object? deps = ()}) {
-//   final controller =
-//       $cache(() => TextEditingController(text: initialText), deps);
-//   $dispose(controller);
-//   return controller;
-// }
+TextEditingController $textEditingController(
+        {String? initialText, Object? key}) =>
+    $effect(() {
+      final controller = TextEditingController(text: initialText);
+      return (() => controller, controller.dispose);
+    }, key);
 
-// void $listen<T extends Listenable>(T listenable, VoidCallback listener) {
-//   $register(() {
-//     listenable.addListener(listener);
-//     return () {};
-//   }, () => listenable.removeListener(listener));
-// }
+void $listen<T extends Listenable>(T listenable, VoidCallback listener) =>
+    $effect(() {
+      listenable.addListener(listener);
+      return (null, () => listenable.removeListener(listener));
+    }, listenable);
 
 // TODO(andrflor): find a way to get previous being disctinct
 T? $previous<T>(T current) {
@@ -174,23 +171,24 @@ T? $previous<T>(T current) {
   return previous;
 }
 
-void $onDispose(VoidCallback dispose) => $effect(() {
-      return (null, dispose);
-    });
+void $onDispose(VoidCallback dispose) => $effect(() => (null, dispose));
+
+void $dispose<T>(T disposable, Function(T) disposer) =>
+    $effect(() => (null, () => disposer(disposable)), disposable);
 
 void $autoDispose<T>(T disposable) => $effect(() {
       // TODO(andrflor): assert that the element is disposable
-      return (null, (disposable as dynamic).dispose());
+      return (null, (disposable as dynamic).dispose);
     }, disposable);
 
-bool $isFirstRun() {
-  final (firstRun, setIsFirstRun) = $data<bool>(true);
-  setIsFirstRun(false);
+bool firstRun() {
+  final (firstRun, setFirstRun) = $data<bool>(true);
+  setFirstRun(false);
   return firstRun;
 }
 
 void $watch<T>(T value, Function(T) watcher) {
-  final watch = !$isFirstRun();
+  final watch = !firstRun();
   $effect(() {
     if (watch) {
       watcher(value);
@@ -200,6 +198,27 @@ void $watch<T>(T value, Function(T) watcher) {
 
 // TODO(andrflor): rebuild during capsule build should be forbidden??
 void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
+
+T $memo<T>(T Function() memo, [Object? key]) => $effect(() {
+      final value = memo();
+      return (() => value, null);
+    }, key);
+
+AsyncState<T> $future<T>(Future<T> future) => $effect(() {
+      AsyncState<T> asyncState = const AsyncLoading();
+      AsyncState<T> stateGetter() => asyncState;
+      if (asyncState is AsyncLoading) {
+        final rebuild = $rebuild();
+        future.then((data) {
+          asyncState = AsyncSuccess(data);
+          rebuild();
+        }, onError: (error) {
+          asyncState = AsyncError(error);
+          rebuild();
+        });
+      }
+      return (stateGetter, null);
+    }, future);
 
 (T, void Function(T)) $data<T>(T initial) => $effect(() {
       T data = initial;
@@ -395,27 +414,6 @@ class AsyncSuccess<T> extends AsyncState<T> {
   @override
   List<Object?> get props => [data];
 }
-
-T $memo<T>(T Function() memo, [Object? key]) => $effect(() {
-      final value = memo();
-      return (() => value, null);
-    }, key);
-
-AsyncState<T> $future<T>(Future<T> future) => $effect(() {
-      AsyncState<T> asyncState = const AsyncLoading();
-      AsyncState<T> stateGetter() => asyncState;
-      if (asyncState is AsyncLoading) {
-        final rebuild = $rebuild();
-        future.then((data) {
-          asyncState = AsyncSuccess(data);
-          rebuild();
-        }, onError: (error) {
-          asyncState = AsyncError(error);
-          rebuild();
-        });
-      }
-      return (stateGetter, null);
-    }, future);
 
 (int, void Function(int)) counterCapsule() => $state(0);
 
