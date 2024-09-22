@@ -78,13 +78,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "4.0.0"
-  flutter_rearch:
-    dependency: "direct main"
-    description:
-      path: "../rearch-dart/packages/flutter_rearch"
-      relative: true
-    source: path
-    version: "1.6.8"
   flutter_test:
     dependency: "direct dev"
     description: flutter
@@ -154,14 +147,6 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "1.9.0"
-  rearch:
-    dependency: transitive
-    description:
-      name: rearch
-      sha256: "5796113229d1bd2fed43610d6f073ed6ab28fac1308eb2dd7bf5d011c02a15b1"
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.10.1"
   sky_engine:
     dependency: transitive
     description: flutter
@@ -233,4 +218,4 @@ packages:
     version: "14.2.5"
 sdks:
   dart: ">=3.5.3 <4.0.0"
-  flutter: ">=3.19.0"
+  flutter: ">=3.18.0-18.0.pre.54"

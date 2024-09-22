@@ -2,11 +2,10 @@ import 'dart:async';
 
 import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_rearch/flutter_rearch.dart';
 
 void main() {
-  runApp(const App());
-  // runApp(const MaterialApp(home: ExerciceView()));
+  // runApp(const App());
+  runApp(const MaterialApp(home: ExerciceView()));
   // runApp(const MaterialApp(home: SimpleWidget()));
 }
 
@@ -91,13 +90,13 @@ T $effect<T>((T Function()?, VoidCallback?)? Function() callback,
   assert(
       _currentFlow != null,
       throw StateError(
-          'Only use side effects inside a capsule or a HookWidget build'));
+          'Only use side effects inside a capsule or a FlowWidget build'));
   return _currentFlow!.effect(callback, key);
 }
 
 T $<T>(T Function() capsule) {
   assert(_currentFlow != null,
-      throw StateError('Only use \$ inside a capsule or a HookWidget build'));
+      throw StateError('Only use \$ inside a capsule or a FlowWidget build'));
   return ((_flows[capsule] ??= _CapsuleFlow(capsule))
         ..dependencies.add(_currentFlow!))
       .data;
@@ -361,17 +360,17 @@ class InnerWidget extends FlowWidget {
   }
 }
 
-class SomeWidget extends HookWidget {
+class SomeWidget extends FlowWidget {
   final int data;
   const SomeWidget({super.key, required this.data});
 
   @override
   Widget build(BuildContext context) {
-    scopeCapsule.override((use) {
-      final (count, setCount) = use.state(data);
-      return (count, () => setCount(count + 1));
-    }, [data]);
-    use.automaticKeepAlive();
+    // scopeCapsule.override((use) {
+    //   final (count, setCount) = $state(data);
+    //   return (count, () => setCount(count + 1));
+    // }, [data]);
+    // $automaticKeepAlive();
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -386,12 +385,12 @@ class SomeWidget extends HookWidget {
 int sharedInt() => empty;
 Never get empty => throw '';
 
-class SomeOtherWidget extends HookWidget {
+class SomeOtherWidget extends FlowWidget {
   const SomeOtherWidget({super.key});
 
   @override
   Widget build(BuildContext context) {
-    final (count, setCount) = use(scopeCapsule);
+    final (count, setCount) = $(scopeCapsule);
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -403,7 +402,7 @@ class SomeOtherWidget extends HookWidget {
   }
 }
 
-(int, void Function()) scopeCapsule(CapsuleHandle use) => abstractCapsule;
+(int, void Function()) scopeCapsule() => throw UnimplementedError();
 
 Future<int> deleyadedFuture() => deleyadedFutureFactory(1)();
 Future<int> Function() deleyadedFutureFactory(int ratio) => () {
@@ -463,11 +462,11 @@ class AsyncSuccess<T> extends AsyncState<T> {
 // This capsule provides the current count, plus one.
 int countPlusOneCapsule() => $(countIncrementor).$1 % 2;
 
-class ExerciceView extends HookWidget {
+class ExerciceView extends FlowWidget {
   const ExerciceView({super.key});
   @override
   Widget build(BuildContext context) {
-    final (exerciceState, exerciceDispatch) = use(exerciceReducerCapsule);
+    final (exerciceState, exerciceDispatch) = $(exerciceReducerCapsule);
     return Scaffold(
       body: Column(
         children: [
@@ -517,19 +516,18 @@ class ExerciceView extends HookWidget {
   }
 }
 
-class ModifyExercice extends HookWidget {
+class ModifyExercice extends FlowWidget {
   final Exercice? exercice;
   const ModifyExercice({super.key, this.exercice});
 
   @override
   Widget build(BuildContext context) {
-    final (_, exerciceDispatch) = use(exerciceReducerCapsule);
-    final nameController =
-        use.textEditingController(initialText: exercice?.name);
+    final (_, exerciceDispatch) = $(exerciceReducerCapsule);
+    final nameController = $textEditingController(initialText: exercice?.name);
     final bodypartController =
-        use.textEditingController(initialText: exercice?.bodyPart);
-    final (valid, setValid) = use.state(false);
-    use.effect(() {
+        $textEditingController(initialText: exercice?.bodyPart);
+    final (valid, setValid) = $state(false);
+    $effect(() {
       void validate() {
         setValid(nameController.text.isNotEmpty &&
             bodypartController.text.isNotEmpty &&
@@ -540,7 +538,6 @@ class ModifyExercice extends HookWidget {
 
       nameController.addListener(validate);
       bodypartController.addListener(validate);
-      return null;
     }, [nameController, bodypartController]);
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -611,16 +608,15 @@ class Exercice extends Equatable {
   List<Object?> get props => [name, bodyPart];
 }
 
-List<Exercice> exerciceCapsule(CapsuleHandle use) => _initExercices;
+List<Exercice> exerciceCapsule() => _initExercices;
 
 String bodyFilter = '';
 String exerciceFilter = '';
 
-(ExerciceState, Function(ExerciceAction)) exerciceReducerCapsule(
-    CapsuleHandle use) {
-  final exercices = use(exerciceCapsule);
+(ExerciceState, Function(ExerciceAction)) exerciceReducerCapsule() {
+  final exercices = $(exerciceCapsule);
 
-  return use.reducer((state, action) {
+  return $reducer((state, action) {
     switch (action) {
       case ExerciceModify(:final name, :final bodyPart, :final target):
         exercices[exercices.indexOf(target)] = Exercice(
