@@ -171,10 +171,21 @@ void $listen<T extends Listenable>(T listenable, VoidCallback listener) =>
 //   return previous;
 // }
 
+typedef Reducer<State, Action> = State Function(State, Action);
+
+(State, void Function(Action)) $reducer<State, Action>(
+  Reducer<State, Action> reducer,
+  State initialState,
+) {
+  final (state, setState) = $state(initialState);
+  return (state, (action) => setState(reducer(state, action)));
+}
+
 T? $previous<T>(T current) {
   final (cache, setCache) = $data<(T?, T)>((null, current));
   if (current != cache.$2) {
     setCache((cache.$2, current));
+    return cache.$2;
   }
   return cache.$1;
 }
@@ -227,6 +238,20 @@ AsyncState<T> $future<T>(Future<T> future) => $effect(() {
       }
       return (stateGetter, null);
     }, future);
+
+AsyncState<T> $stream<T>(Stream<T> stream) => $effect(() {
+      AsyncState<T> asyncState = const AsyncLoading();
+      AsyncState<T> stateGetter() => asyncState;
+      final rebuild = $rebuild();
+      final subscription = stream.listen((data) {
+        asyncState = AsyncSuccess(data);
+        rebuild();
+      }, onError: (error) {
+        asyncState = AsyncError(error);
+        rebuild();
+      });
+      return (stateGetter, subscription.cancel);
+    }, stream);
 
 (T, void Function(T)) $data<T>(T initial) => $effect(() {
       T data = initial;
