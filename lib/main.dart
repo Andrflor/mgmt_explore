@@ -5,10 +5,11 @@ import 'package:flutter/material.dart';
 
 void main() {
   // runApp(const App());
-  runApp(const MaterialApp(home: ExerciceView()));
-  // runApp(const MaterialApp(home: SimpleWidget()));
+  // runApp(const MaterialApp(home: ExerciceView()));
+  runApp(const MaterialApp(home: SimpleWidget()));
 }
 
+// TODO(andrflor): find a way to cleanup on umount for capsules
 class App extends FlowWidget {
   const App({super.key});
 
@@ -75,7 +76,7 @@ class SimpleWidget extends FlowWidget {
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       switch (result) {
         AsyncLoading<int>() => const CircularProgressIndicator(),
-        AsyncError<int>() => Text('Error'),
+        AsyncError<int>() => const Text('Error'),
         AsyncSuccess<int>(:final data) => Text('Success $data'),
       }
     ]);
@@ -187,6 +188,59 @@ T? $previous<T>(T current) {
     return cache.$2;
   }
   return cache.$1;
+}
+
+List<T> $cache<T>(T current, [int depth = 1000]) {
+  final (cache, setCache) = $data<List<T>>([current]);
+  if (current != cache.last) {
+    cache.add(current);
+  }
+  while (cache.length > depth) {
+    cache.removeAt(0);
+  }
+  return cache;
+}
+
+(T, VoidCallback?, VoidCallback?) $replay<T>(T current) => $effect(() {
+      final firstNode = Node(current);
+      Node<T> node = firstNode;
+      final rebuild = $rebuild();
+      void next() {
+        node = node.next!;
+        rebuild();
+      }
+
+      void previous() {
+        node = node.previous!;
+        rebuild();
+      }
+
+      return (
+        () {
+          if (node.value != current) {
+            node.value = current;
+            node.next = null;
+          }
+
+          return (
+            node.value,
+            (node.hasPrevious ? previous : null),
+            (node.hasNext ? next : null),
+          );
+        },
+        null
+      );
+    });
+
+class Node<T> {
+  Node<T>? previous;
+  Node<T>? next;
+
+  bool get hasNext => next != null;
+  bool get hasPrevious => previous != null;
+
+  T value;
+  Node(this.value);
 }
 
 void $onDispose(VoidCallback dispose) => $effect(() => (null, dispose));
@@ -538,7 +592,7 @@ class ModifyExercice extends FlowWidget {
 
       nameController.addListener(validate);
       bodypartController.addListener(validate);
-    }, [nameController, bodypartController]);
+    }, (nameController, bodypartController));
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
