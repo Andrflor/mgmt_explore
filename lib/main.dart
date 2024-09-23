@@ -4,9 +4,9 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
 void main() {
-  // runApp(const App());
+  runApp(const App());
   // runApp(const MaterialApp(home: ExerciceView()));
-  runApp(const MaterialApp(home: SimpleWidget()));
+  // runApp(const MaterialApp(home: SimpleWidget()));
 }
 
 // TODO(andrflor): find a way to cleanup on umount for capsules
@@ -66,6 +66,8 @@ class App extends FlowWidget {
   }
 }
 
+Future<int> myFuture = Future.value(4);
+
 class SimpleWidget extends FlowWidget {
   const SimpleWidget({super.key});
 
@@ -86,27 +88,26 @@ class SimpleWidget extends FlowWidget {
 final Map<Function(), _CapsuleFlow> _flows = {};
 _NodeFlow? _currentFlow;
 
-T $effect<T>((T Function()?, VoidCallback?)? Function() callback,
-    [Object? key]) {
+T $effect<T>(Effect<T> Function() effectCallback, [Object? key]) {
   assert(
       _currentFlow != null,
       throw StateError(
           'Only use side effects inside a capsule or a FlowWidget build'));
-  return _currentFlow!.effect(callback, key);
+  return _currentFlow!.effect(effectCallback, key);
 }
 
 T $<T>(T Function() capsule) {
   assert(_currentFlow != null,
       throw StateError('Only use \$ inside a capsule or a FlowWidget build'));
   return ((_flows[capsule] ??= _CapsuleFlow(capsule))
-        ..dependencies.add(_currentFlow!))
+        ..dependencies.add(_currentFlow!..flowIn.add(_flows[capsule]!)))
       .data;
 }
 
 class _CapsuleFlow<T> extends _NodeFlow<T> {
   final Set<_NodeFlow> dependencies = {};
 
-  _CapsuleFlow(super.capsule, [super.onDispose]) {
+  _CapsuleFlow(super.capsule) {
     this();
   }
 
@@ -124,6 +125,10 @@ class _CapsuleFlow<T> extends _NodeFlow<T> {
 
   @override
   void rebuild() {
+    if (building) {
+      return;
+    }
+    building = true;
     cacheIndex = 0;
     final oldData = data;
     this();
@@ -132,6 +137,7 @@ class _CapsuleFlow<T> extends _NodeFlow<T> {
         capsuleFlow.rebuild();
       }
     }
+    building = false;
   }
 }
 
@@ -140,9 +146,20 @@ class _TopFlow extends _NodeFlow<void> {
 
   @override
   void rebuild() {
+    if (building) return;
+    building = true;
     cacheIndex = 0;
     capsule();
+    building = false;
   }
+}
+
+typedef Effect<T> = (T Function()?, VoidCallback?)?;
+
+Effect<int> someEffect() => (() => 0, null);
+
+E $map<T, E>(T value, E Function(T) mapper) {
+  // TODO(andrflor): implement map and other operators
 }
 
 (int, void Function(int)) $count(int value) => $state(value);
@@ -243,7 +260,10 @@ void $dispose<T>(T disposable, Function(T) disposer) =>
     $effect(() => (null, () => disposer(disposable)), disposable);
 
 void $autoDispose<T>(T disposable) => $effect(() {
-      // TODO(andrflor): assert that the element is disposable
+      assert(
+          (disposable as dynamic).dipose is VoidCallback,
+          throw ArgumentError(
+              'You used autoDispose on an element that does not have a dispose function'));
       return (null, (disposable as dynamic).dispose);
     }, disposable);
 
@@ -326,12 +346,13 @@ AsyncState<T> $stream<T>(Stream<T> stream) => $effect(() {
 
 abstract class _NodeFlow<T> {
   int cacheIndex = 0;
-  final VoidCallback? onDispose;
+  bool building = false;
+  final Set<_CapsuleFlow> flowIn = {};
   late final T Function() capsule;
   final List<((Function()?, VoidCallback?)?, Object?)> indexCache = [];
-  _NodeFlow(this.capsule, [this.onDispose]);
+  _NodeFlow(this.capsule);
 
-  T effect((T Function()?, VoidCallback?)? Function() effect, Object? key) {
+  T effect(Effect<T> Function() effect, Object? key) {
     if (indexCache.length == cacheIndex) {
       indexCache.add((effect(), key));
       return indexCache[cacheIndex++].$1?.$1?.call();
@@ -347,7 +368,9 @@ abstract class _NodeFlow<T> {
 
   @mustCallSuper
   void dispose() {
-    onDispose?.call();
+    for (final flow in flowIn) {
+      flow.dependencies.remove(this);
+    }
     for (final cached in indexCache) {
       cached.$1?.$2?.call();
     }
@@ -393,17 +416,11 @@ class InnerWidget extends FlowWidget {
   Widget build(BuildContext context) {
     final (initial, otherSetter) = $(countDecrementor);
     final countPlusOne = $(countPlusOneCapsule);
-    // final result = $(getSome);
 
     return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
       Text(initial.toString()),
       Text(countPlusOne.toString()),
       ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement')),
-      // switch (result) {
-      //   AsyncLoading<int>() => const CircularProgressIndicator(),
-      //   AsyncError<int>() => Text('Error'),
-      //   AsyncSuccess<int>(:final data) => Text('Success $data'),
-      // }
     ]);
   }
 }
