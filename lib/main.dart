@@ -160,17 +160,6 @@ void $listen<T extends Listenable>(T listenable, VoidCallback listener) =>
       return (null, () => listenable.removeListener(listener));
     }, listenable);
 
-// TODO(andrflor): find a way to get previous being disctinct
-// T? $previous<T>(T current) {
-//   final (previous, setPrevious) = $data<T?>(null);
-//   $effect(() {
-//     if (previous != current) {
-//       setPrevious(current);
-//     }
-//   }, current);
-//   return previous;
-// }
-
 typedef Reducer<State, Action> = State Function(State, Action);
 
 (State, void Function(Action)) $reducer<State, Action>(
@@ -202,8 +191,8 @@ List<T> $cache<T>(T current, [int depth = 1000]) {
 }
 
 (T, VoidCallback?, VoidCallback?) $replay<T>(T current) => $effect(() {
-      final firstNode = Node(current);
-      Node<T> node = firstNode;
+      T lastValue = current;
+      Node<T> node = Node(current);
       final rebuild = $rebuild();
       void next() {
         node = node.next!;
@@ -217,9 +206,14 @@ List<T> $cache<T>(T current, [int depth = 1000]) {
 
       return (
         () {
-          if (node.value != current) {
-            node.value = current;
-            node.next = null;
+          if (lastValue != current) {
+            Node<T>? newNode = node.next;
+            while (newNode != null) {
+              node.previous = null;
+              newNode = node.next;
+            }
+            node = node.next = Node(current);
+            lastValue = current;
           }
 
           return (
