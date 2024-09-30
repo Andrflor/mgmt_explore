@@ -4,13 +4,13 @@ import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 
 void main() {
-  runApp(const App());
-  // runApp(const MaterialApp(home: ExerciceView()));
+  // runApp(const App());
+  runApp(const MaterialApp(home: ExerciceView()));
   // runApp(const MaterialApp(home: SimpleWidget()));
 }
 
 // TODO(andrflor): find a way to cleanup on umount for capsules
-class App extends FlowWidget {
+class App extends VxWidget {
   const App({super.key});
 
   @override
@@ -18,7 +18,9 @@ class App extends FlowWidget {
     final (value, setter) = $state('youpi');
     final (initial, otherSetter) = $(countIncrementor);
     final countPrevious = $previous(initial);
-    $watch(value, (value) => print('the value is $value'));
+    $watch(value, () {
+      print('the value is $value');
+    });
     $effect(() {
       print('hey');
     }, initial < 0);
@@ -43,19 +45,19 @@ class App extends FlowWidget {
             onPressed: otherSetter,
             child: const Text('clock'),
           ),
-          const SomeWidget(
-            key: ValueKey(1),
-            data: 1,
-          ),
+          // const SomeWidget(
+          //   key: ValueKey(1),
+          //   data: 1,
+          // ),
           if (value != 'youpi')
+            // const SomeWidget(
+            //   key: ValueKey(2),
+            //   data: 2,
+            // ),
             const SomeWidget(
-              key: ValueKey(2),
-              data: 2,
+              key: ValueKey(3),
+              data: 3,
             ),
-          const SomeWidget(
-            key: ValueKey(3),
-            data: 3,
-          ),
           const InnerWidget(),
           // Expanded(
           //     child: ListView.builder(
@@ -68,7 +70,7 @@ class App extends FlowWidget {
 
 Future<int> myFuture = Future.value(4);
 
-class SimpleWidget extends FlowWidget {
+class SimpleWidget extends VxWidget {
   const SimpleWidget({super.key});
 
   @override
@@ -83,406 +85,6 @@ class SimpleWidget extends FlowWidget {
       }
     ]);
   }
-}
-
-final Map<Function(), _CapsuleFlow> _flows = {};
-_NodeFlow? _currentFlow;
-
-T $effect<T>(Effect<T> Function() effectCallback, [Object? key]) {
-  assert(
-      _currentFlow != null,
-      throw StateError(
-          'Only use side effects inside a capsule or a FlowWidget build'));
-  return _currentFlow!.effect(effectCallback, key);
-}
-
-T $<T>(T Function() capsule) {
-  assert(_currentFlow != null,
-      throw StateError('Only use \$ inside a capsule or a FlowWidget build'));
-  return ((_flows[capsule] ??= _CapsuleFlow(capsule))
-        ..dependencies.add(_currentFlow!..flowIn.add(_flows[capsule]!)))
-      .data;
-}
-
-class _CapsuleFlow<T> extends _NodeFlow<T> {
-  final Set<_NodeFlow> dependencies = {};
-
-  _CapsuleFlow(super.capsule) {
-    this();
-  }
-
-  T? data;
-
-  void call() {
-    final oldFlow = _currentFlow;
-    _currentFlow = this;
-    try {
-      data = capsule();
-    } finally {
-      _currentFlow = oldFlow;
-    }
-  }
-
-  @override
-  void rebuild() {
-    if (building) {
-      return;
-    }
-    building = true;
-    cacheIndex = 0;
-    final oldData = data;
-    this();
-    if (oldData != data) {
-      for (final capsuleFlow in dependencies) {
-        capsuleFlow.rebuild();
-      }
-    }
-    building = false;
-  }
-}
-
-class _TopFlow extends _NodeFlow<void> {
-  _TopFlow(super.capsule);
-
-  @override
-  void rebuild() {
-    if (building) return;
-    building = true;
-    cacheIndex = 0;
-    capsule();
-    building = false;
-  }
-}
-
-typedef Effect<T> = (T Function()?, VoidCallback?)?;
-
-Effect<int> someEffect() => (() => 0, null);
-
-E $map<T, E>(T value, E Function(T) mapper) {
-  // TODO(andrflor): implement map and other operators
-}
-
-(int, void Function(int)) $count(int value) => $state(value);
-
-TextEditingController $textEditingController(
-        {String? initialText, Object? key}) =>
-    $effect(() {
-      final controller = TextEditingController(text: initialText);
-      return (() => controller, controller.dispose);
-    }, key);
-
-void $listen<T extends Listenable>(T listenable, VoidCallback listener) =>
-    $effect(() {
-      listenable.addListener(listener);
-      return (null, () => listenable.removeListener(listener));
-    }, listenable);
-
-typedef Reducer<State, Action> = State Function(State, Action);
-
-(State, void Function(Action)) $reducer<State, Action>(
-  Reducer<State, Action> reducer,
-  State initialState,
-) {
-  final (state, setState) = $state(initialState);
-  return (state, (action) => setState(reducer(state, action)));
-}
-
-T? $previous<T>(T current) {
-  final (cache, setCache) = $data<(T?, T)>((null, current));
-  if (current != cache.$2) {
-    setCache((cache.$2, current));
-    return cache.$2;
-  }
-  return cache.$1;
-}
-
-List<T> $cache<T>(T current, [int depth = 1000]) {
-  final (cache, setCache) = $data<List<T>>([current]);
-  if (current != cache.last) {
-    cache.add(current);
-  }
-  while (cache.length > depth) {
-    cache.removeAt(0);
-  }
-  return cache;
-}
-
-(T, VoidCallback?, VoidCallback?) $replay<T>(T current) => $effect(() {
-      T lastValue = current;
-      Node<T> node = Node(current);
-      final rebuild = $rebuild();
-      void next() {
-        node = node.next!;
-        rebuild();
-      }
-
-      void previous() {
-        node = node.previous!;
-        rebuild();
-      }
-
-      return (
-        () {
-          if (lastValue != current) {
-            Node<T>? newNode = node.next;
-            while (newNode != null) {
-              node.previous = null;
-              newNode = node.next;
-            }
-            node = node.next = Node(current);
-            lastValue = current;
-          }
-
-          return (
-            node.value,
-            (node.hasPrevious ? previous : null),
-            (node.hasNext ? next : null),
-          );
-        },
-        null
-      );
-    });
-
-class Node<T> {
-  Node<T>? previous;
-  Node<T>? next;
-
-  bool get hasNext => next != null;
-  bool get hasPrevious => previous != null;
-
-  T value;
-  Node(this.value);
-}
-
-void $onDispose(VoidCallback dispose) => $effect(() => (null, dispose));
-
-void $dispose<T>(T disposable, Function(T) disposer) =>
-    $effect(() => (null, () => disposer(disposable)), disposable);
-
-void $autoDispose<T>(T disposable) => $effect(() {
-      assert(
-          (disposable as dynamic).dipose is VoidCallback,
-          throw ArgumentError(
-              'You used autoDispose on an element that does not have a dispose function'));
-      return (null, (disposable as dynamic).dispose);
-    }, disposable);
-
-bool firstRun() {
-  final (firstRun, setFirstRun) = $data<bool>(true);
-  setFirstRun(false);
-  return firstRun;
-}
-
-void $watch<T>(T value, Function(T) watcher) {
-  final watch = !firstRun();
-  $effect(() {
-    if (watch) {
-      watcher(value);
-    }
-  }, value);
-}
-
-// TODO(andrflor): rebuild during capsule build should be forbidden??
-void Function() $rebuild() => _currentFlow?.rebuild ?? () {};
-
-T $memo<T>(T Function() memo, [Object? key]) => $effect(() {
-      final value = memo();
-      return (() => value, null);
-    }, key);
-
-AsyncState<T> $future<T>(Future<T> future) => $effect(() {
-      AsyncState<T> asyncState = const AsyncLoading();
-      AsyncState<T> stateGetter() => asyncState;
-      if (asyncState is AsyncLoading) {
-        final rebuild = $rebuild();
-        future.then((data) {
-          asyncState = AsyncSuccess(data);
-          rebuild();
-        }, onError: (error) {
-          asyncState = AsyncError(error);
-          rebuild();
-        });
-      }
-      return (stateGetter, null);
-    }, future);
-
-AsyncState<T> $stream<T>(Stream<T> stream) => $effect(() {
-      AsyncState<T> asyncState = const AsyncLoading();
-      AsyncState<T> stateGetter() => asyncState;
-      final rebuild = $rebuild();
-      final subscription = stream.listen((data) {
-        asyncState = AsyncSuccess(data);
-        rebuild();
-      }, onError: (error) {
-        asyncState = AsyncError(error);
-        rebuild();
-      });
-      return (stateGetter, subscription.cancel);
-    }, stream);
-
-(T, void Function(T)) $data<T>(T initial) => $effect(() {
-      T data = initial;
-      void setData(T e) {
-        if (data != e) {
-          data = e;
-        }
-      }
-
-      return (() => (data, setData), null);
-    });
-
-(T, void Function(T)) $state<T>(T initial) => $effect(() {
-      final rebuild = $rebuild();
-      T data = initial;
-      void setData(T e) {
-        if (data != e) {
-          data = e;
-          rebuild();
-        }
-      }
-
-      return (() => (data, setData), null);
-    });
-
-abstract class _NodeFlow<T> {
-  int cacheIndex = 0;
-  bool building = false;
-  final Set<_CapsuleFlow> flowIn = {};
-  late final T Function() capsule;
-  final List<((Function()?, VoidCallback?)?, Object?)> indexCache = [];
-  _NodeFlow(this.capsule);
-
-  T effect(Effect<T> Function() effect, Object? key) {
-    if (indexCache.length == cacheIndex) {
-      indexCache.add((effect(), key));
-      return indexCache[cacheIndex++].$1?.$1?.call();
-    }
-    final cache = indexCache[cacheIndex];
-    if (cache.$2 != key) {
-      cache.$1?.$2?.call();
-      return ((indexCache[cacheIndex++] = (effect(), key)).$1?.$1)?.call() as T;
-    }
-    cacheIndex++;
-    return (cache.$1?.$1)?.call() as T;
-  }
-
-  @mustCallSuper
-  void dispose() {
-    for (final flow in flowIn) {
-      flow.dependencies.remove(this);
-    }
-    for (final cached in indexCache) {
-      cached.$1?.$2?.call();
-    }
-    indexCache.clear();
-  }
-
-  void rebuild();
-}
-
-abstract class FlowWidget extends StatelessWidget {
-  const FlowWidget({super.key});
-
-  @override
-  StatelessElement createElement() => FlowElement(this);
-}
-
-class FlowElement extends StatelessElement {
-  FlowElement(super.widget);
-  late final _flow = _TopFlow(markNeedsBuild);
-
-  @override
-  Widget build() {
-    final oldFlow = _currentFlow;
-    _currentFlow = _flow;
-    try {
-      return super.build();
-    } finally {
-      _currentFlow = oldFlow;
-    }
-  }
-
-  @override
-  void unmount() {
-    _flow.dispose();
-    super.unmount();
-  }
-}
-
-class InnerWidget extends FlowWidget {
-  const InnerWidget({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final (initial, otherSetter) = $(countDecrementor);
-    final countPlusOne = $(countPlusOneCapsule);
-
-    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-      Text(initial.toString()),
-      Text(countPlusOne.toString()),
-      ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement')),
-    ]);
-  }
-}
-
-class SomeWidget extends FlowWidget {
-  final int data;
-  const SomeWidget({super.key, required this.data});
-
-  @override
-  Widget build(BuildContext context) {
-    // scopeCapsule.override((use) {
-    //   final (count, setCount) = $state(data);
-    //   return (count, () => setCount(count + 1));
-    // }, [data]);
-    // $automaticKeepAlive();
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(data.toString()),
-        const SomeOtherWidget(),
-      ],
-    );
-  }
-}
-
-int sharedInt() => empty;
-Never get empty => throw '';
-
-class SomeOtherWidget extends FlowWidget {
-  const SomeOtherWidget({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final (count, setCount) = $(scopeCapsule);
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(count.toString()),
-        ElevatedButton(onPressed: setCount, child: const Text('Inner'))
-      ],
-    );
-  }
-}
-
-(int, void Function()) scopeCapsule() => throw UnimplementedError();
-
-Future<int> deleyadedFuture() => deleyadedFutureFactory(1)();
-Future<int> Function() deleyadedFutureFactory(int ratio) => () {
-      final (count, setState) = $(counterCapsule);
-      Future.delayed(Duration(seconds: 4 * ratio), () => setState(count + 1));
-      return Future.delayed(Duration(seconds: 2 * ratio), () => count)
-          .then((delayed) => delayed + 1);
-    };
-
-AsyncState<int> getSome() {
-  final delayed = $(deleyadedFuture);
-  $effect(() {
-    return (null, () => print('diposed ${delayed.hashCode}'));
-  }, delayed);
-  return $future(delayed);
 }
 
 sealed class AsyncState<T> extends Equatable {
@@ -512,26 +114,399 @@ class AsyncSuccess<T> extends AsyncState<T> {
   List<Object?> get props => [data];
 }
 
-(int, void Function(int)) counterCapsule() => $state(0);
+T $effect<T>(Effect<T>? Function() effect, [Object? key]) =>
+    $(Vx._effect(effect), key);
 
-(int, void Function()) countIncrementor() {
-  final (count, setCount) = $(counterCapsule);
+void $dispose(VoidCallback dispose) => $(Vx._effect(() => (null, dispose)));
+T $memo<T>(T Function() memo, [Object? key]) => $(Vx(memo), key);
+
+void $watch<T>(Object? data, void Function() callback) =>
+    $(Vx($firstBuild() ? () {} : callback), data);
+
+TextEditingController $textEditingController({String? text}) => $effect(() {
+      final controller = TextEditingController(text: text);
+      return (() => controller, () => controller.dispose());
+    });
+
+bool $firstBuild() => (Vx._currentVx as dynamic).firstBuild;
+
+T? $previous<T>(T current) {
+  final (cache, setCache) = $state<(T?, T)>((null, current));
+  if (current != cache.$2) {
+    setCache((cache.$2, current));
+    return cache.$2;
+  }
+  return cache.$1;
+}
+
+AsyncState<T> $future<T>(Future<T> future) => $memo(() {
+      final (state, setState) = $state<AsyncState<T>>(const AsyncLoading());
+      if ($firstBuild()) {
+        future.then((data) => setState(AsyncSuccess(data)),
+            onError: (error) => setState(AsyncError(error)));
+      }
+      return state;
+    }, future);
+
+(T, void Function(T)) $state<T>(T initial) => $(Vx._state(initial));
+
+typedef Reducer<State, Action> = State Function(State, Action);
+
+(State, void Function(Action)) $reducer<State, Action>(
+  Reducer<State, Action> reducer,
+  State initialState,
+) {
+  final (state, setState) = $state(initialState);
+  return (state, (Action action) => setState(reducer(state, action)));
+}
+
+typedef VoidCallback = void Function();
+
+VoidCallback $rebuild() => Vx._currentVx?._rebuild ?? () {};
+T $<T>(Vx<T> vx, [Object? key]) => Vx._currentVx!._register(vx, key);
+
+typedef Effect<T> = (T Function()?, VoidCallback?);
+typedef Effector<T> = Effect<T>? Function();
+
+class _VxCompute<E> extends _VxData<E> {
+  final List<Vx> _dependencies = [];
+  List<CacheEntry>? _cache;
+  int _idx = -1;
+  E Function()? _compute;
+  _VxCompute();
+  _VxCompute._(this._compute);
+
+  bool get firstBuild => _idx + 1 == _cache?.length;
+
+  @override
+  void _dispose() {
+    if (_cache == null) return;
+    for (final elt in _cache!) {
+      elt.vx._removeDependency(this);
+    }
+    _cache = null;
+  }
+
+  @override
+  void _addDependency(Vx vx) {
+    if (_dependencies.isEmpty && _cache == null) {
+      _idx = -1;
+      _cache = [];
+      final currentVx = Vx._currentVx;
+      Vx._currentVx = this;
+      _data = _compute!();
+      Vx._currentVx = currentVx;
+    }
+    _dependencies.add(vx);
+  }
+
+  @override
+  void _removeDependency(Vx vx) {
+    _dependencies.remove(vx);
+    if (_dependencies.isEmpty) {
+      _dispose();
+    }
+  }
+
+  @override
+  void _rebuild() {
+    _idx = -1;
+    final oldData = _data;
+    final currentVx = Vx._currentVx;
+    Vx._currentVx = this;
+    _data = _compute!();
+    Vx._currentVx = currentVx;
+    if (_data != oldData) {
+      for (final dep in _dependencies) {
+        dep._rebuild();
+      }
+    }
+  }
+
+  @override
+  T _register<T>(Vx<T> vx, Object? key) {
+    if (_cache!.length == ++_idx) {
+      _cache!.add(CacheEntry<T>(vx.._addDependency(this), key));
+      return vx._data;
+    }
+    final CacheEntry<T> cache = _cache![_idx] as CacheEntry<T>;
+    if (cache.key != key) {
+      cache.vx._removeDependency(this);
+      _cache![_idx] = CacheEntry<T>(vx.._addDependency(this), key);
+      return vx._data;
+    }
+    return cache.vx._data;
+  }
+}
+
+class _VxState<T, E extends void Function(T)> extends _VxData<(T, E)> {
+  Vx? _dependency;
+  _VxState._(T initial) {
+    _data = (initial, _setData as E);
+  }
+
+  @override
+  void _addDependency(Vx vx) => _dependency = vx;
+
+  @override
+  void _removeDependency(Vx vx) => _dependency = null;
+
+  @override
+  void _rebuild() => _dependency?._rebuild();
+
+  void _setData(T data) {
+    if (_data.$1 == data) return;
+    _data = (data, _setData as E);
+    _rebuild();
+  }
+}
+
+class _VxEffect<T> extends _VxCompute<T> {
+  final Effect<T>? Function() _effect;
+  VoidCallback? _onDispose;
+  _VxEffect._(this._effect);
+
+  @override
+  void _addDependency(Vx vx) {
+    if (_dependencies.isEmpty && _cache == null) {
+      _idx = -1;
+      _cache = [];
+      final res = _effect();
+      _onDispose = res?.$2;
+      _compute = res?.$1 ??
+          () {
+            return null as T;
+          };
+      final currentVx = Vx._currentVx;
+      Vx._currentVx = this;
+      _data = _compute!();
+      Vx._currentVx = currentVx;
+    }
+    _dependencies.add(vx);
+  }
+
+  @override
+  void _dispose() {
+    if (_cache == null) return;
+    _onDispose?.call();
+    for (final elt in _cache!) {
+      elt.vx._removeDependency(this);
+    }
+    _cache = null;
+  }
+}
+
+class CacheEntry<T> {
+  final Vx<T> vx;
+  Object? key;
+
+  CacheEntry(this.vx, this.key);
+}
+
+class _VxData<T> extends _VxImpl<T> {
+  _VxData._(this._data);
+  _VxData();
+
+  @override
+  late T _data;
+
+  @override
+  void _addDependency(Vx vx) {}
+
+  @override
+  void _rebuild() {}
+
+  @override
+  void _removeDependency(Vx vx) {}
+}
+
+abstract class _VxImpl<_> implements Vx<_> {
+  @override
+  T _register<T>(Vx<T> vx, Object? key) => vx._data;
+
+  @override
+  void _dispose() {}
+}
+
+abstract class Vx<E> {
+  static Vx? _currentVx;
+  static Vx<(T, void Function(T))> _state<T>(T initial) =>
+      _VxState<T, void Function(T)>._(initial);
+
+  factory Vx._effect(Effect<E>? Function() effect) => _VxEffect._(effect);
+  factory Vx._value(E value) => _VxData._(value);
+  factory Vx(E Function() compute) => _VxCompute._(compute);
+
+  late E _data;
+
+  void _addDependency(Vx vx);
+  void _removeDependency(Vx vx);
+
+  T _register<T>(Vx<T> vx, Object? key);
+  void _rebuild();
+  void _dispose();
+}
+
+abstract class VxWidget extends StatelessWidget {
+  const VxWidget({super.key});
+
+  @override
+  VxElement createElement() => VxElement(this);
+}
+
+class VxElement extends StatelessElement implements Vx<Null> {
+  VxElement(super.widget);
+  List<CacheEntry>? _cache = [];
+  int _idx = -1;
+
+  @override
+  void _rebuild() => markNeedsBuild();
+
+  @override
+  T _register<T>(Vx<T> vx, Object? key) {
+    if (_cache!.length == ++_idx) {
+      _cache!.add(CacheEntry<T>(vx.._addDependency(this), key));
+      return vx._data;
+    }
+    final CacheEntry<T> cache = _cache![_idx] as CacheEntry<T>;
+    if (cache.key != key) {
+      cache.vx._removeDependency(this);
+      _cache![_idx] = CacheEntry<T>(vx.._addDependency(this), key);
+      return vx._data;
+    }
+    return cache.vx._data;
+  }
+
+  bool get firstBuild => _idx + 1 == _cache?.length;
+
+  @override
+  Widget build() {
+    _idx = -1;
+    Vx._currentVx = this;
+    return super.build();
+  }
+
+  @override
+  void unmount() {
+    _dispose();
+    super.unmount();
+  }
+
+  @override
+  Null _data;
+
+  @override
+  void _addDependency(Vx vx) {}
+
+  @override
+  void _dispose() {
+    if (_cache == null) return;
+    for (final elt in _cache!) {
+      elt.vx._removeDependency(this);
+    }
+    _cache = null;
+  }
+
+  @override
+  void _removeDependency(Vx vx) {}
+}
+
+class InnerWidget extends VxWidget {
+  const InnerWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final (initial, otherSetter) = $(countDecrementor);
+    final countPlusOne = $(countPlusOneFlux);
+
+    return Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+      Text(initial.toString()),
+      Text(countPlusOne.toString()),
+      ElevatedButton(onPressed: () => otherSetter(), child: Text('decrement')),
+    ]);
+  }
+}
+
+void $override<T>(Vx vx, T Function() implementation, [Object? key]) {}
+
+class SomeWidget extends VxWidget {
+  final int data;
+  const SomeWidget({super.key, required this.data});
+
+  @override
+  Widget build(BuildContext context) {
+    $override(scopeFlux, () {
+      final (count, setCount) = $state(data);
+      return (count, () => setCount(count + 1));
+    }, data);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(data.toString()),
+        const SomeOtherWidget(),
+      ],
+    );
+  }
+}
+
+int sharedInt() => empty;
+Never get empty => throw '';
+
+class SomeOtherWidget extends VxWidget {
+  const SomeOtherWidget({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final (count, setCount) = $(scopeFlux);
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(count.toString()),
+        ElevatedButton(onPressed: setCount, child: const Text('Inner'))
+      ],
+    );
+  }
+}
+
+final scopeFlux = Vx(() {
+  final (state, setState) = $state(0);
+  return (state, () => setState(2));
+});
+
+final deleyadedFuture = Vx(deleyadedFutureFactory(1));
+Future<int> Function() deleyadedFutureFactory(int ratio) => () {
+      final (count, setState) = $(counterFlux);
+      Future.delayed(Duration(seconds: 4 * ratio), () => setState(count + 1));
+      return Future.delayed(Duration(seconds: 2 * ratio), () => count)
+          .then((delayed) => delayed + 1);
+    };
+
+final getSome = Vx(() {
+  final delayed = $(deleyadedFuture);
+  return $future(delayed);
+});
+
+final counterFlux = Vx(() => $state(0));
+final countIncrementor = Vx(() {
+  final (count, setCount) = $(counterFlux);
   return (count, () => setCount(count + 1));
-}
+});
 
-(int, void Function()) countDecrementor() {
-  final (count, setCount) = $(counterCapsule);
+final countDecrementor = Vx(() {
+  final (count, setCount) = $(counterFlux);
   return (count, () => setCount(count - 1));
-}
+});
 
 // This capsule provides the current count, plus one.
-int countPlusOneCapsule() => $(countIncrementor).$1 % 2;
+final countPlusOneFlux = Vx(() => $(countIncrementor).$1 % 2);
 
-class ExerciceView extends FlowWidget {
+class ExerciceView extends VxWidget {
   const ExerciceView({super.key});
   @override
   Widget build(BuildContext context) {
-    final (exerciceState, exerciceDispatch) = $(exerciceReducerCapsule);
+    final (exerciceState, exerciceDispatch) = $(exerciceReducerFlux);
     return Scaffold(
       body: Column(
         children: [
@@ -581,16 +556,15 @@ class ExerciceView extends FlowWidget {
   }
 }
 
-class ModifyExercice extends FlowWidget {
+class ModifyExercice extends VxWidget {
   final Exercice? exercice;
   const ModifyExercice({super.key, this.exercice});
 
   @override
   Widget build(BuildContext context) {
-    final (_, exerciceDispatch) = $(exerciceReducerCapsule);
-    final nameController = $textEditingController(initialText: exercice?.name);
-    final bodypartController =
-        $textEditingController(initialText: exercice?.bodyPart);
+    final (_, exerciceDispatch) = $(exerciceReducerFlux);
+    final nameController = $textEditingController(text: exercice?.name);
+    final bodypartController = $textEditingController(text: exercice?.bodyPart);
     final (valid, setValid) = $state(false);
     $effect(() {
       void validate() {
@@ -673,15 +647,15 @@ class Exercice extends Equatable {
   List<Object?> get props => [name, bodyPart];
 }
 
-List<Exercice> exerciceCapsule() => _initExercices;
+final exerciceFlux = Vx(() => _initExercices);
 
 String bodyFilter = '';
 String exerciceFilter = '';
 
-(ExerciceState, Function(ExerciceAction)) exerciceReducerCapsule() {
-  final exercices = $(exerciceCapsule);
+final exerciceReducerFlux = Vx(() {
+  final exercices = $(exerciceFlux);
 
-  return $reducer((state, action) {
+  return $reducer<ExerciceState, ExerciceAction>((state, action) {
     switch (action) {
       case ExerciceModify(:final name, :final bodyPart, :final target):
         exercices[exercices.indexOf(target)] = Exercice(
@@ -708,7 +682,7 @@ String exerciceFilter = '';
         ]),
     };
   }, ExerciceSuccess(data: [...exercices]));
-}
+});
 
 sealed class ExerciceAction {
   const ExerciceAction();
